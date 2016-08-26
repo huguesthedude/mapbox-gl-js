@@ -136,6 +136,7 @@ var defaultOptions = {
 var Map = module.exports = function(options) {
 
     options = util.extend({}, defaultOptions, options);
+    options.light = util.extend({}, defaultOptions.light, options.light);
 
     if (options.workerCount < 1) {
         throw new Error('workerCount must an integer greater than or equal to 1.');
