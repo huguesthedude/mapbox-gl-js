@@ -33,10 +33,10 @@ var defaultOptions = {
     pitch: 0,
 
     light: {
-        lightAnchor: 'viewport',
-        lightDirection: [-0.5, -0.3, 1.0],
-        lightColor: 'white',
-        lightIntensity: 0.5
+        anchor: 'viewport',
+        direction: [-0.5, -0.3, 1.0],
+        color: 'white',
+        intensity: 0.5
     },
 
     minZoom: defaultMinZoom,
@@ -134,7 +134,6 @@ var defaultOptions = {
  * });
  */
 var Map = module.exports = function(options) {
-
     options = util.extend({}, defaultOptions, options);
     options.light = util.extend({}, defaultOptions.light, options.light);
 
@@ -214,10 +213,11 @@ var Map = module.exports = function(options) {
     if (options.classes) this.setClasses(options.classes);
     if (options.style) this.setStyle(options.style);
 
-    var _map = this;
-    this.style.on('load', function() {
-        _map._setLightOptions(util.extend(options.light, _map.style._light));
-    });
+    if (options.style) {
+        this.style.on('load', this._setLightOptions.bind(this, options.light, this.style._light));
+    } else {
+        this.on('load', this._setLightOptions.bind(this, options.light));
+    }
 
     if (options.attributionControl) this.addControl(new Attribution(options.attributionControl));
 
@@ -444,66 +444,63 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
         } else throw new Error('maxZoom must be between the current minZoom and ' + defaultMaxZoom + ', inclusive');
     },
     /**
-     * Set light color (for use in extrusions).
+     * Get a light property.
      *
-     * @param {Color} lightColor Color with which to light extrusions.
-     * @returns {Map} `this`
+     * @param {String} property Light property. One of `anchor`, `color`, `direction`, `intensity`.
+     * @returns {Value} value Value for specified property. Type per property is denoted in the style spec.
      */
-    setLightColor: function(lightColor) {
-        this.painter.setLighting({
-            lightColor: parseColor(lightColor)
-        });
-
-        return this;
+    getLightProperty: function(property) {
+        if (property === 'anchor') {
+            return this.painter.light.anchor;
+        } else if (property === 'color') {
+            return this.painter.light.color;
+        } else if (property === 'direction') {
+            return [this.painter.light.direction.x, this.painter.light.direction.y, this.painter.light.direction.z];
+        } else if (property === 'intensity') {
+            return this.painter.light.intensity;
+        } else throw new Error('Unrecognized light property: ' + property);
     },
     /**
-     * Set light color (for use in extrusions).
+     * Set a light property (for use in lighting extrusions).
      *
-     * @param {Array<number>} lightDirection Array of three values representing light direction x,y,z.
+     * @param {String} property Light property. One of `anchor`, `color`, `direction`, `intensity`.
+     * @param {Value} value Value for specified property. Type per property is denoted in the style spec.
      * @returns {Map} `this`
      */
-    setLightDirection: function(lightDirection) {
-        if (Array.isArray(lightDirection) && lightDirection.length === 3 &&
-            lightDirection.every(function(i) { return typeof i === 'number'; })) {
-            this.painter.setLighting({
-                lightDirection: {
-                    x: lightDirection[0],
-                    y: lightDirection[1],
-                    z: lightDirection[2]
-                }
-            });
-        } else throw new Error('light.lightDirection must be an array of three numbers');
-        // TODO should we do more specific bounds checking on these numbers? probably
+    setLightProperty: function(property, value) {
+        if (!property || typeof value === 'undefined') throw new Error('Must specify light property and value.');
 
-        return this;
-    },
-    /**
-     * Set light color (for use in extrusions).
-     *
-     * @param {String} lightAnchor Anchor for extrusion lighting. One of `map`, `viewport`.
-     * @returns {Map} `this`
-     */
-    setLightAnchor: function(lightAnchor) {
-        if (lightAnchor === 'map' || lightAnchor === 'viewport') {
+        if (property === 'anchor') {
+            if (value === 'map' || value === 'viewport') {
+                this.painter.setLighting({
+                    anchor: value
+                });
+            } else throw new Error('light.anchor must be one of: `map`, `viewport`');
+        } else if (property === 'color') {
             this.painter.setLighting({
-                lightAnchor: lightAnchor
+                color: parseColor(value)
             });
-        } else throw new Error('light.lightAnchor must be one of: `map`, `viewport`');
+        } else if (property === 'direction') {
+            if (Array.isArray(value) && value.length === 3 &&
+                value.every(function(i) { return typeof i === 'number'; })) {
+                this.painter.setLighting({
+                    direction: {
+                        x: value[0],
+                        y: value[1],
+                        z: value[2]
+                    }
+                });
+            } else throw new Error('light.direction must be an array of three numbers');
+            // TODO stricter bounds checking
+        } else if (property === 'intensity') {
+            if (typeof value === 'number' && value >= 0 && value <= 1) {
+                this.painter.setLighting({
+                    intensity: value
+                });
+            } else throw new Error('light.intensity must be a number between 0 and 1.');
+        } else throw new Error('Unrecognized light property: ' + property);
 
-        return this;
-    },
-    /**
-     * Set light intensity (for use in extrusions).
-     *
-     * @param {Number} lightIntensity Intensity of extrusion lighting.
-     * @returns {Map} `this`
-     */
-    setLightIntensity: function(lightIntensity) {
-        if (typeof lightIntensity === 'number' && lightIntensity >= 0 && lightIntensity <= 1) {
-            this.painter.setLighting({
-                lightIntensity: lightIntensity
-            });
-        } else throw new Error('light.lightIntensity must be a number between 0 and 1.');
+        this._update();
 
         return this;
     },
@@ -513,11 +510,12 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
      * @param {Object} lightOptions Object containing any light subproperties.
      * @returns {Map} `this`
      */
-    _setLightOptions: function(opts) {
-        this.setLightAnchor(opts.lightAnchor);
-        this.setLightColor(opts.lightColor);
-        this.setLightDirection(opts.lightDirection);
-        this.setLightIntensity(opts.lightIntensity);
+    _setLightOptions: function(mapOpts, styleOpts) {
+        var lightOpts = util.extend(mapOpts, styleOpts || {});
+        this.setLightProperty('anchor', lightOpts.anchor);
+        this.setLightProperty('color', lightOpts.color);
+        this.setLightProperty('direction', lightOpts.direction);
+        this.setLightProperty('intensity', lightOpts.intensity);
 
         return this;
     },
