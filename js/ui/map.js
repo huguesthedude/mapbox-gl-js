@@ -453,7 +453,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
         if (property === 'anchor') {
             return this.painter.light.anchor;
         } else if (property === 'color') {
-            return this.painter.light.color;
+            return this.painter.light.rawColor;
         } else if (property === 'direction') {
             return [this.painter.light.direction.x, this.painter.light.direction.y, this.painter.light.direction.z];
         } else if (property === 'intensity') {
@@ -467,7 +467,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
      * @param {Value} value Value for specified property. Type per property is denoted in the style spec.
      * @returns {Map} `this`
      */
-    setLightProperty: function(property, value) {
+    setLightProperty: function(property, value, _wait) {
         if (!property || typeof value === 'undefined') throw new Error('Must specify light property and value.');
 
         if (property === 'anchor') {
@@ -478,6 +478,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
             } else throw new Error('light.anchor must be one of: `map`, `viewport`');
         } else if (property === 'color') {
             this.painter.setLighting({
+                rawColor: value,
                 color: parseColor(value)
             });
         } else if (property === 'direction') {
@@ -491,7 +492,6 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
                     }
                 });
             } else throw new Error('light.direction must be an array of three numbers');
-            // TODO stricter bounds checking
         } else if (property === 'intensity') {
             if (typeof value === 'number' && value >= 0 && value <= 1) {
                 this.painter.setLighting({
@@ -500,7 +500,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
             } else throw new Error('light.intensity must be a number between 0 and 1.');
         } else throw new Error('Unrecognized light property: ' + property);
 
-        this._update();
+        if (!_wait) this._update();
 
         return this;
     },
@@ -512,10 +512,12 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
      */
     _setLightOptions: function(mapOpts, styleOpts) {
         var lightOpts = util.extend(mapOpts, styleOpts || {});
-        this.setLightProperty('anchor', lightOpts.anchor);
-        this.setLightProperty('color', lightOpts.color);
-        this.setLightProperty('direction', lightOpts.direction);
-        this.setLightProperty('intensity', lightOpts.intensity);
+        if (lightOpts.anchor) this.setLightProperty('anchor', lightOpts.anchor, true);
+        if (lightOpts.color) this.setLightProperty('color', lightOpts.color, true);
+        if (lightOpts.direction) this.setLightProperty('direction', lightOpts.direction, true);
+        if (typeof lightOpts.intensity !== 'undefined') this.setLightProperty('intensity', lightOpts.intensity, true);
+
+        this._update();
 
         return this;
     },
@@ -734,6 +736,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
             this.style = style;
         } else {
             this.style = new Style(style, this.animationLoop, this._workerCount);
+            if (style.light) this._setLightOptions(style.light);
         }
 
         this.style
