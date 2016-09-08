@@ -5,6 +5,7 @@ var util = require('../util/util');
 var browser = require('../util/browser');
 var window = require('../util/browser').window;
 var Evented = require('../util/evented');
+var interpolate = require('../util/interpolate');
 var DOM = require('../util/dom');
 
 var Style = require('../style/style');
@@ -460,6 +461,72 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
             return this.painter.light.intensity;
         } else throw new Error('Unrecognized light property: ' + property);
     },
+
+    /**
+     * Set a light property (for use in lighting extrusions).
+     *
+     * @param {String} property Light property. One of `anchor`, `color`, `direction`, `intensity`.
+     * @param {Value} value Value for specified property. Type per property is denoted in the style spec.
+     * @param {Object} [options]
+     * @param {boolean} [options._defer] If `true`, this API does not update the map with the new light property.
+     * @param TODO TODO
+     */
+     setLighting: function(options) {
+        this.activeLightTransitions = {};
+
+        var startAnchor = this.getLightProperty('anchor'),
+            startColor = this.painter.light.color,
+            startDirection = this.getLightProperty('direction'),
+            startIntensity = this.getLightProperty('intensity'),
+
+            anchor = 'anchor' in options ? options.anchor : startAnchor,
+            color = 'color' in options ? parseColor(options.color) : startColor,
+            direction = 'direction' in options ? options.direction : startDirection,
+            intensity = 'intensity' in options ? +options.intensity : startIntensity;
+
+        this.activeLightTransitions.anchor = false; // TODO
+        this.activeLightTransitions.color = color !== startColor;
+        this.activeLightTransitions.direction = direction !== startDirection;
+        this.activeLightTransitions.intensity = intensity !== startIntensity;
+
+        this._lightTransition(function(k) {
+            if (this.activeLightTransitions.color) {
+                // debugger;
+                this._setLightProperty('color', interpolate.color(startColor, color, k));
+            }
+            if (this.activeLightTransitions.direction) {
+                this._setLightProperty('direction', interpolate.array(startDirection, direction, k));
+            }
+            if (this.activeLightTransitions.intensity) {
+                this._setLightProperty('intensity', interpolate(startIntensity, intensity, k));
+            }
+            this._update();
+        }, function() {
+            // fire some events
+        }.bind(this), options);
+     },
+
+    _lightTransition: function(frame, finish, options) {
+        this._finishFn = finish;
+        this._abortFn = browser.timed(function (t) {
+            frame.call(this, util.ease(t));
+            if (t === 1) {
+                this._finishLightTransition();
+            }
+        }, options.animate === false ? 0 : options.duration, this);
+    },
+
+    _finishLightTransition: function() {
+        delete this._abortFn;
+        // The finish function might emit events which trigger new eases, which
+        // set a new _finishFn. Ensure we don't delete it unintentionally.
+        var finish = this._finishFn;
+        delete this._finishFn;
+        finish.call(this);
+    },
+
+
+
     /**
      * Set a light property (for use in lighting extrusions).
      *
@@ -467,7 +534,7 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
      * @param {Value} value Value for specified property. Type per property is denoted in the style spec.
      * @returns {Map} `this`
      */
-    setLightProperty: function(property, value, _wait) {
+    _setLightProperty: function(property, value) {
         if (!property || typeof value === 'undefined') throw new Error('Must specify light property and value.');
 
         if (property === 'anchor') {
@@ -477,9 +544,10 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
                 });
             } else throw new Error('light.anchor must be one of: `map`, `viewport`');
         } else if (property === 'color') {
+            var newColor = Array.isArray(value) ? value : parseColor(value);
             this.painter.setLighting({
                 rawColor: value,
-                color: parseColor(value)
+                color: newColor
             });
         } else if (property === 'direction') {
             if (Array.isArray(value) && value.length === 3 &&
@@ -500,8 +568,6 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
             } else throw new Error('light.intensity must be a number between 0 and 1.');
         } else throw new Error('Unrecognized light property: ' + property);
 
-        if (!_wait) this._update();
-
         return this;
     },
     /**
@@ -512,10 +578,10 @@ util.extend(Map.prototype, /** @lends Map.prototype */{
      */
     _setLightOptions: function(mapOpts, styleOpts) {
         var lightOpts = util.extend(mapOpts, styleOpts || {});
-        if (lightOpts.anchor) this.setLightProperty('anchor', lightOpts.anchor, true);
-        if (lightOpts.color) this.setLightProperty('color', lightOpts.color, true);
-        if (lightOpts.direction) this.setLightProperty('direction', lightOpts.direction, true);
-        if (typeof lightOpts.intensity !== 'undefined') this.setLightProperty('intensity', lightOpts.intensity, true);
+        if (lightOpts.anchor) this._setLightProperty('anchor', lightOpts.anchor);
+        if (lightOpts.color) this._setLightProperty('color', lightOpts.color);
+        if (lightOpts.direction) this._setLightProperty('direction', lightOpts.direction);
+        if (typeof lightOpts.intensity !== 'undefined') this._setLightProperty('intensity', lightOpts.intensity);
 
         this._update();
 
