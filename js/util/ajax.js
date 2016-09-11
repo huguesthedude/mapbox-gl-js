@@ -5,12 +5,14 @@ var window = require('./window');
 exports.getJSON = function(url, callback) {
     var xhr = new window.XMLHttpRequest();
     xhr.open('GET', url, true);
+    xhr.responseType = 'json';
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.onerror = function(e) {
         callback(e);
     };
     xhr.onload = function() {
-        if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+        if (xhr.response) {
+        //if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
             var data;
             try {
                 data = JSON.parse(xhr.response);
